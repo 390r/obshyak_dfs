@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="utf-8">
+    <title></title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"
+          integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+</head>
+<body style="padding: 0; margin: 0">
+
+<div id="terminal_text">
+    Connectiong...
+    <br>
+    Client initialised.
+    <br>
+</div>
+<div style="width: 100vw; display: flex; background-color: #78909C; color: #ffffff; border: none">
+    <span id="shell_helper">
+      shell / >
+    </span>
+    <input id='command_shell'>
+    <input id="file_input" type="file" style="display: none;">
+</div>
+<div class="mt-2">
+    <input id="set_namenode_addr" class="form-control"
+           style="max-width: 50vw; width: max-content; display: inline-block;" placeholder="http://127.0.0.1:5000/">
+    <button id="set_namenode_addr_button" class="btn btn-info" style="margin-top: -3px" onclick="set_namenode_addr();">
+        Set namenode address
+    </button>
+</div>
+</body>
+</html>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"
+        integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q"
+        crossorigin="anonymous"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"
+        integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.dev.js"></script>
+
+<script type="text/javascript">
+    var curr_dir = '/';
+    var curr_dir_entries;
+
+    var namenodeAddr = "http://127.0.0.1:5000/";
+
+    function set_namenode_addr() {
+        $('#terminal_text').html('Connected to: ' + namenodeAddr.fontcolor("#66BB6A") + '<br>');
+        namenodeAddr = $('#set_namenode_addr').val();
+        list_dir();
+    }
+
+    function list_dir() {
+        $.ajax({
+            type: "GET",
+            url: namenodeAddr + 'list-dir/',
+            data: {
+                path: curr_dir
+            },
+            contentType: "application/x-www-form-urlencoded",
+            success: function (data) {
+                parsed = JSON.parse(data)['retrieved'];
+                curr_dir_entries = parsed;
+                for (var f in parsed) {
+                    let temp = `${parsed[f]['name']} &emsp;`;
+                    if (parsed[f]['type'] == 'file')
+                        temp = temp.fontcolor("#76FF03");
+                    else if (parsed[f]['type'] == 'dir')
+                        temp = temp.fontcolor("#90CAF9");
+                    $('#terminal_text').append(temp);
+                }
+            }
+        });
+    }
+
+    function show_help() {
+        let temp =
+            'ls'.fontcolor("#76FF03") + ' - Returns list of files, which are stored in the directory<br>' +
+            'mkdir'.fontcolor("#76FF03") + ' &lt;dir_name&gt;'.fontcolor("#66BB6A") + ' - Create a new directory<br>' +
+            'rm'.fontcolor("#76FF03") + ' &lt;path&gt;'.fontcolor("#66BB6A") + ' - Delete file or directory<br>' +
+            'cd'.fontcolor("#76FF03") + ' &lt;path&gt;'.fontcolor("#66BB6A") + ' - Go to path<br>' +
+            'cp'.fontcolor("#76FF03") + ' &lt;src_path&gt; &lt;dst_path&gt;'.fontcolor("#66BB6A") + ' - Copy file<br>' +
+            'mv'.fontcolor("#76FF03") + ' &lt;src_path&gt; &lt;dst_path&gt;'.fontcolor("#66BB6A") + ' - Move file<br>' +
+            'get'.fontcolor("#76FF03") + ' &lt;path&gt;'.fontcolor("#66BB6A") + ' - Download file<br>' +
+            'upload'.fontcolor("#76FF03") + ' - Upload file<br>' +
+            'help / h / man'.fontcolor("#76FF03") + ' - Show help<br><br>';
+        $('#terminal_text').append(temp);
+    }
+
+    $(document).ready(function () {
+        $('#set_namenode_addr').val(namenodeAddr);
+        set_namenode_addr();
+        $('#command_shell').select();
+        show_help();
+
+        $('#file_input').change(function () {
+            let filepath = curr_dir + $('input[type=file]').val().split('\\').pop();
+            $.ajax({
+                type: "POST",
+                url: namenodeAddr + 'upload-file/',
+                data: {
+                    filepath: filepath
+                },
+                success: function (data) {
+                    let retrieved = JSON.parse(data);
+                    let node_ip = retrieved['fileserver'][0]['server_ip'];
+                    let node_port = retrieved['fileserver'][0]['server_port'];
+                    let temp = `NameNode redirect to ${node_ip}:${node_port}`;
+                    $('#terminal_text').append(temp.fontcolor("#66BB6A") + "<br>");
+                    let formData = new FormData();
+                    formData.append('file', $('#file_input').prop('files')[0]);
+                    formData.append('filepath', filepath);
+                    $.ajax({
+                        type: "POST",
+                        url: `http://${node_ip}:${node_port}/upload-file/`,
+                        data: formData,
+                        processData: false,
+                        contentType: false,
+                        success: function (data) {
+                            let temp = `File ${filepath} uploaded to ${node_ip}:${node_port}`;
+                            $('#terminal_text').append(temp.fontcolor("#66BB6A"));
+                            $('#file_input').val('');
+
+                        },
+                        error: function (data) {
+                            error_flag = true;
+                            let temp = `File ${filepath} upload error`;
+                            $('#terminal_text').append(temp.fontcolor("#ef5350"));
+                            $('#file_input').val('');
+                        }
+                    });
+                },
+                error: function (data) {
+                    error_flag = true;
+                    let temp = `Directory ${tokens[1]} already exists`;
+                    $('#terminal_text').append(temp.fontcolor("#ef5350"));
+                }
+            });
+        });
+    });
+
+    $('#command_shell').keypress(function (e) {
+        var error_flag = false;
+
+        if (e.which == 13) {
+            let command = $('#command_shell').val();
+            let tokens = command.trim().split(/[\s,]+/);
+            $('#terminal_text').append("<br>");
+            $('#terminal_text').append(command.fontcolor("#FFCA28") + "<br>");
+            if (tokens[0] === 'ls') {
+                list_dir();
+            } else if (tokens[0] === 'cd') {
+                let temp_path = curr_dir;
+                if (tokens[1] == "..") {
+                    let splitted_temp = curr_dir.split('/');
+                    temp_path = splitted_temp.slice(0, splitted_temp.length - 2).join('/') + '/';
+                } else
+                    temp_path += tokens[1] + '/';
+                $.ajax({
+                    type: "GET",
+                    url: namenodeAddr + 'open-dir/',
+                    data: {
+                        path: temp_path
+                    },
+                    contentType: "application/x-www-form-urlencoded",
+                    success: function (data) {
+                        curr_dir = temp_path;
+                        $('#shell_helper').html(`shell ${curr_dir.fontcolor("#FDD835")} >`);
+                    },
+                    statusCode: {
+                        404: function (data) {
+                            error_flag = true;
+                            let temp = `Can't go to ${tokens[1]}`;
+                            $('#terminal_text').append(temp.fontcolor("#ef5350"));
+                        }
+                    }
+                });
+            } else if (tokens[0] === 'mkdir') {
+                $.ajax({
+                    type: "POST",
+                    url: namenodeAddr + 'make-dir/',
+                    data: {
+                        path: curr_dir + tokens[1] + '/'
+                    },
+                    success: function (data) {
+                        let temp = `Directory ${tokens[1]} created`;
+                        $('#terminal_text').append(temp.fontcolor("#66BB6A"));
+                    },
+                    statusCode: {
+                        400: function (data) {
+                            error_flag = true;
+                            let temp = `Directory ${tokens[1]} already exists`;
+                            $('#terminal_text').append(temp.fontcolor("#ef5350"));
+                        }
+                    }
+                });
+            } else if (tokens[0] === 'get') {
+                let filepath = curr_dir + tokens[1];
+                $.ajax({
+                    type: "GET",
+                    url: namenodeAddr + 'get-file/',
+                    data: {
+                        filepath: filepath
+                    },
+                    contentType: "application/x-www-form-urlencoded",
+                    success: function (data) {
+                        let retrieved = JSON.parse(data)['retrieved'];
+                        let temp = `File ${tokens[1]} found. <br> Server: ${JSON.stringify(retrieved)}`;
+                        $('#terminal_text').append(temp.fontcolor("#66BB6A"));
+                        window.location = `http://${retrieved['server_ip']}:${retrieved['server_port']}/download-file/?filepath=${encodeURI(filepath)}`;
+                    },
+                    statusCode: {
+                        404: function (data) {
+                            error_flag = true;
+                            let temp = `No such file found: ${curr_dir + tokens[1] + '/'} on NameNode`;
+                            $('#terminal_text').append(temp.fontcolor("#ef5350"));
+                        }
+                    }
+                });
+            } else if (tokens[0] === 'upload') {
+                $('#file_input').trigger('click');
+            } else if (tokens[0] === 'rm') {
+                $.ajax({
+                    type: "POST",
+                    url: namenodeAddr + 'delete-file/',
+                    data: {
+                        path: curr_dir + tokens[1]
+                    },
+                    success: function (data) {
+                        let temp = `Entry ${tokens[1]} removed`;
+                        $('#terminal_text').append(temp.fontcolor("#66BB6A"));
+                    },
+                    error: function (data) {
+                        error_flag = true;
+                        let temp = `Deleting ${tokens[1]} error`;
+                        $('#terminal_text').append(temp.fontcolor("#ef5350"));
+                    }
+                });
+            } else if (tokens[0] === 'cp') {
+                let path_from = curr_dir + tokens[1];
+                let path_to = tokens[2];
+                if (!path_to.startsWith('/'))
+                    path_to = curr_dir + path_to;
+                $.ajax({
+                    type: "POST",
+                    url: namenodeAddr + 'copy-file/',
+                    data: {
+                        path_from: path_from,
+                        path_to: path_to
+                    },
+                    success: function (data) {
+                        let retrieved = JSON.parse(data)['retrieved'];
+                        let temp = `File ${path_from} was copied to ${path_to}.`;
+                        $('#terminal_text').append(temp.fontcolor("#66BB6A"));
+                    },
+                    statusCode: {
+                        400: function (data) {
+                            error_flag = true;
+                            let temp = JSON.stringify(data.responseJSON.message);
+                            $('#terminal_text').append(temp.fontcolor("#ef5350"));
+                        }
+                    }
+                });
+            } else if (tokens[0] === 'mv') {
+                let path_from = curr_dir + tokens[1];
+                let path_to = tokens[2];
+                if (!path_to.startsWith('/'))
+                    path_to = curr_dir + path_to;
+                $.ajax({
+                    type: "POST",
+                    url: namenodeAddr + 'move-file/',
+                    data: {
+                        path_from: path_from,
+                        path_to: path_to
+                    },
+                    success: function (data) {
+                        let retrieved = JSON.parse(data)['retrieved'];
+                        let temp = `File ${path_from} was moved to ${path_to}.`;
+                        $('#terminal_text').append(temp.fontcolor("#66BB6A"));
+                    },
+                    statusCode: {
+                        400: function (data) {
+                            error_flag = true;
+                            let temp = JSON.stringify(data.responseJSON.message);
+                            $('#terminal_text').append(temp.fontcolor("#ef5350"));
+                        }
+                    }
+                });
+            } else if (tokens[0] === 'help' || tokens[0] === 'h' || tokens[0] === 'man') {
+                show_help();
+            } else {
+                let temp = `No such command: ${tokens[0]}`;
+                $('#terminal_text').append(temp.fontcolor("#ef5350"));
+            }
+            $('#command_shell').val('');
+            $("body").on('DOMSubtreeModified', "#terminal_text", function () {
+                $('#terminal_text').scrollTop($('#terminal_text')[0].scrollHeight);
+            });
+        }
+    });
+</script>
+
+<style>
+    #terminal_text {
+        min-width: 100vw;
+        height: 80vh;
+        background-color: #37474F;
+        margin: 0;
+        left: 0;
+        color: #ffffff;
+        display: inline-block;
+        overflow-y: auto;
+    }
+
+    #shell_helper {
+        line-height: 40px;
+        padding-right: 8px;
+        padding-left: 8px;
+        color: #B2FF59;
+    }
+
+    #command_shell::-moz-placeholder {
+        color: #64DD17;
+        font-size: 12pt;
+    }
+
+    #command_shell::-webkit-input-placeholder {
+        color: #64DD17;
+        font-size: 12pt;
+    }
+
+    #command_shell:-ms-input-placeholder {
+        color: #64DD17;
+        font-size: 12pt;
+    }
+
+    #command_shell::-ms-input-placeholder {
+        color: #64DD17;
+        font-size: 12pt;
+    }
+
+    #command_shell::placeholder {
+        color: #64DD17;
+        font-size: 12pt;
+    }
+
+    #command_shell {
+        flex-grow: 100;
+        height: 40px;
+        background-color: #78909C;
+        color: #ffffff;
+        text-color: #ffffff;
+        border: none;
+        line-height: 40px;
+        outline: none;
+        font-size: 12pt;
+        color: #64DD17;
+    }
+</style>

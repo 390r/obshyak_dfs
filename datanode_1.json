@@ -1,0 +1,11 @@
+{
+  "id": 1,
+  "name": "datanode_1",
+  "ip": "127.0.0.1",
+  "port": 10001,
+  "rootDir": "storage/rootDir1/",
+  "nameserver": {
+    "ip": "127.0.0.1",
+    "port": 5000
+  }
+}
