@@ -24,9 +24,10 @@ class FileServer:
 
     def init_fn(self, config):
         global sio
+        ip = requests.get('https://api.ipify.org').text
         self.config = config
         self.nameserver_addr = 'http://{}:{}'.format(config['nameserver']['ip'], config['nameserver']['port'])
-        self.node_info = {'server_ip': config['ip'], 'server_port': config['port']}
+        self.node_info = {'server_ip': ip, 'server_port': config['port']}
         available_files = self.get_available_files(config['rootDir'])
         sio.connect(self.nameserver_addr)
         print('my sid is', sio.sid)
@@ -36,7 +37,7 @@ class FileServer:
         }, callback=lambda payload: self.replicate_on_init(payload))
 
         app.secret_key = 'MaxGay'
-        app.run(host=config['ip'], port=config['port'])
+        app.run(host='0.0.0.0', port=config['port'])
 
     def replicate_on_init(self, payload):
         payload = json.loads(payload)
@@ -46,7 +47,10 @@ class FileServer:
         for path in to_be_deleted:
             self.delete_file(path)
         for i in to_be_downloaded:
-            filepath = '/{}/{}'.format(i['ancestors_str'], i['name'])
+            if len(i['ancestors']) > 0:
+                filepath = '/{}/{}'.format(i['ancestors_str'], i['name'])
+            else:
+                filepath = '/{}'.format(i['name'])
             server = random.choice(i['servers'])
             res = requests.get('http://{}:{}/download-file/'.format(server['server_ip'], server['server_port']),
                                data={'filepath': filepath})
@@ -57,10 +61,10 @@ class FileServer:
         file_paths = {}  # List which will store all of the full filepaths.
 
         # Walk the tree.
-        for root, directories, files in os.walk(root_dir):
+        for root_tmp, directories, files in os.walk(root_dir):
             for filename in files:
                 # Join the two strings in order to form the full filepath.
-                root = root[len(root_dir):]
+                root = root_tmp[len(root_dir):]
                 filepath = os.path.join(root, filename)
                 file_paths[filepath] = int(os.path.getmtime(root_dir + filepath))  # Add it to the list.
 
@@ -84,8 +88,9 @@ class FileServer:
                 f.write(file)
         else:
             file.save(path)
+        size = os.path.getsize(path)
         os.utime(path, (timestamp, timestamp))
-        self.acknowledge_nameserver(path, filepath, timestamp, replicated=False)
+        self.acknowledge_nameserver(path, filepath, timestamp, size, replicated=False)
 
     def write_replica(self, file, filepath, timestamp):
         basename = self.config['rootDir'] + os.path.split(filepath)[0]
@@ -97,9 +102,13 @@ class FileServer:
         os.utime(path, (timestamp, timestamp))
         self.acknowledge_nameserver(path, filepath, timestamp, replicated=True)
 
-    def acknowledge_nameserver(self, path, filepath, timestamp, replicated):
+    def acknowledge_nameserver(self, path, filepath, timestamp, size=None, replicated=False):
         sio.emit('allocate_file',
-                 {'filepath': filepath, 'timestamp': timestamp, **self.node_info, 'replicated': replicated},
+                 {'filepath': filepath,
+                  'timestamp': timestamp,
+                  'size': size,
+                  'replicated': replicated,
+                  **self.node_info},
                  callback=lambda y: sio.emit('list_servers', {**self.node_info},
                                              callback=lambda x: self.replicate_to_servers(x, path, filepath,
                                                                                           timestamp)) if not replicated else print(

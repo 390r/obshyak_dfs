@@ -45,12 +45,20 @@
     var curr_dir = '/';
     var curr_dir_entries;
 
-    var namenodeAddr = "http://127.0.0.1:5000/";
+    var namenodeAddr;
+
+    if (localStorage.getItem("namenodeAddr") === null) {
+        namenodeAddr = "http://127.0.0.1:5000/";
+    } else {
+        namenodeAddr = localStorage.getItem('namenodeAddr');
+    }
+
 
     function set_namenode_addr() {
         $('#terminal_text').html('Connected to: ' + namenodeAddr.fontcolor("#66BB6A") + '<br>');
         namenodeAddr = $('#set_namenode_addr').val();
         list_dir();
+        localStorage.setItem('namenodeAddr', namenodeAddr);
     }
 
     function list_dir() {
@@ -74,6 +82,13 @@
                 }
             }
         });
+    }
+
+    function get_full_path(path) {
+        if (path.startsWith('/'))
+            return path;
+        else
+            return curr_dir + path;
     }
 
     function show_help() {
@@ -285,6 +300,52 @@
                         400: function (data) {
                             error_flag = true;
                             let temp = JSON.stringify(data.responseJSON.message);
+                            $('#terminal_text').append(temp.fontcolor("#ef5350"));
+                        }
+                    }
+                });
+            } else if (tokens[0] === 'info') {
+                let filepath = get_full_path(tokens[1]);
+                $.ajax({
+                    type: "GET",
+                    url: namenodeAddr + 'file-info/',
+                    data: {
+                        filepath: filepath
+                    },
+                    success: function (data) {
+                        let temp = `File ${filepath} info: <br>`.fontcolor('#FDD835');
+                        for (let key in data) {
+                            if (data.hasOwnProperty(key)) {
+                                temp += `${key} - `.fontcolor('#FFF59D') + `${data[key]} <br>`;
+                            }
+                        }
+                        $('#terminal_text').append(temp.fontcolor("#66BB6A"));
+                    },
+                    statusCode: {
+                        404: function (data) {
+                            error_flag = true;
+                            let temp = `No such file found: ${filepath} on NameNode`;
+                            $('#terminal_text').append(temp.fontcolor("#ef5350"));
+                        }
+                    }
+                });
+            } else if (tokens[0] === 'touch') {
+                let filepath = get_full_path(tokens[1]);
+                $.ajax({
+                    type: "POST",
+                    url: namenodeAddr + 'touch-file/',
+                    data: {
+                        filepath: filepath
+                    },
+                    contentType: "application/x-www-form-urlencoded",
+                    success: function (data) {
+                        let temp = `File ${filepath} created: <br>`.fontcolor('#66BB6A');
+                        $('#terminal_text').append(temp.fontcolor("#66BB6A"));
+                    },
+                    statusCode: {
+                        400: function (data) {
+                            error_flag = true;
+                            let temp = `File ${filepath} already exists on NameNode`;
                             $('#terminal_text').append(temp.fontcolor("#ef5350"));
                         }
                     }

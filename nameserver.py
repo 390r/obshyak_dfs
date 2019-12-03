@@ -17,11 +17,11 @@ client = pymongo.MongoClient(
 
 db = client[
     'mongodb://heroku_8rbkrj6s:iccis5pen56ndm8r4cg1m3qsvm@ds227110.mlab.com:27110/heroku_8rbkrj6s'.split('/')[-1]]
-ds = db.ds_egor
+ds = db.ds
 
 app = Flask(__name__)
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_handlers=True)
+socketio = SocketIO(app, cors_allowed_origins='*', async_handlers=True)
 
 
 class DocumentLock(object):
@@ -102,12 +102,10 @@ class NameServer:
                     to_be_deleted.append(filepath)
             else:
                 to_be_deleted.append(filepath)
-        to_be_downloaded = list(ds.file_system.find({'type': 'file', '$or': [{
-            '$and': [{'ancestors': {'$nin': [filepath_list[0][:-1] for filepath_list in server_files_lists.values()]}},
-                     {'name': {'$nin': [filepath_list[0][-1] for filepath_list in server_files_lists.values()]}}]},
-            {
-                'name': {'$nin': [filepath_list[0][-1] for filepath_list in server_files_lists.values()]}
-            }]}, {'_id': 0}))
+        print('test1:', [filepath_list[0][:-1] for filepath_list in server_files_lists.values()])
+        to_be_downloaded = list(ds.file_system.find({'type': 'file',
+                                                     'full_path': {'$nin': list(server_files_lists.keys())}},
+                                                    {'_id': 0}))
 
         ds.servers.insert({'node_socket_id': node_socket_id,
                            'server_ip': server_ip,
@@ -122,7 +120,7 @@ class NameServer:
             ds.file_system.remove({'type': 'file', 'servers': {'$size': 0}})
 
     @staticmethod
-    def allocate_fle(node_socket_id, server_ip, server_port, filepath, timestamp, replicated):
+    def allocate_fle(node_socket_id, server_ip, server_port, filepath, timestamp, size, replicated):
         filepath_split = split_filepath(filepath)
         print('node_socket_id:', node_socket_id)
         with DocumentLock():
@@ -134,9 +132,11 @@ class NameServer:
                                        'name': filepath_split[-1]})
                 ds.file_system.insert({'ancestors': filepath_split[:-1],
                                        'ancestors_str': '/'.join(filepath_split[:-1]),
+                                       'full_path': filepath,
                                        'name': filepath_split[-1],
                                        'type': 'file',
                                        'timestamp': timestamp,
+                                       'size': size,
                                        'servers': [{'node_socket_id': node_socket_id,
                                                     'server_ip': server_ip,
                                                     'server_port': server_port}]})
@@ -148,7 +148,7 @@ class NameServer:
                                                              'server_port': server_port}}},
                                       upsert=True)
 
-    # LS, CD, MKDIR, RM
+    # LS, CD, MKDIR, RM, TOUCH
 
     def list_dir(self, path):
         path_split = split_filepath(path)
@@ -169,7 +169,7 @@ class NameServer:
         if ds.file_system.find({'ancestors': path_split[:-1],
                                 'name': path_split[-1],
                                 'type': 'dir'}).count() > 0:
-            return False, "Such dir already exists"
+            return False, 'Such dir already exists'
         else:
             ds.file_system.insert({'ancestors': path_split[:-1],
                                    'name': path_split[-1],
@@ -213,7 +213,20 @@ class NameServer:
             ds.file_system.remove(r)
         return True, None
 
-    # CP, MV
+    def touch_file(self, path):
+        ds_find = ds.file_system.find({'full_path': path})
+        filepath_split = split_filepath(path)
+        if ds_find.count():
+            return False, "File already exists!"
+        else:
+            ds.file_system.insert({'ancestors': filepath_split[:-1],
+                                   'ancestors_str': '/'.join(filepath_split[:-1]),
+                                   'full_path': path,
+                                   'name': filepath_split[-1],
+                                   'type': 'file'})
+            return True, None
+
+    # CP, MV, INFO
 
     def copy_file(self, path_from, path_to):
         path_from_split = split_filepath(path_from)
@@ -227,9 +240,9 @@ class NameServer:
                 socketio.emit('copy_file', {'path_from': path_from, 'path_to': path_to}, broadcast=True, namespace='/')
                 return True, None
             else:
-                return False, "Can't copy to this path. File already exists."
+                return False, 'Can\'t copy to this path. File already exists.'
         else:
-            return False, "No such file found in the File System."
+            return False, 'No such file found in the File System.'
 
     def file_copied_ack(self, path_from, path_to, node_socket_id, node_ip, node_port):
         path_to_split = split_filepath(path_to)
@@ -239,11 +252,13 @@ class NameServer:
                 ds.file_system.update_many({'ancestors': path_to_split[:-1],
                                             'name': path_to_split[-1],
                                             'type': 'file'},
-                                           {'$push': {'servers': {'server_ip': node_ip,
+                                           {'$push': {'servers': {'node_socket_id': node_socket_id,
+                                                                  'server_ip': node_ip,
                                                                   'server_port': node_port}}})
             else:
                 ds.file_system.insert({'ancestors': path_to_split[:-1],
                                        'ancestors_str': '/'.join(path_to_split[:-1]),
+                                       'full_path': path_to,
                                        'name': path_to_split[-1],
                                        'type': 'file',
                                        'timestamp': int(time.time()),
@@ -263,9 +278,9 @@ class NameServer:
                 socketio.emit('move_file', {'path_from': path_from, 'path_to': path_to}, broadcast=True, namespace='/')
                 return True, None
             else:
-                return False, "Can't move to this path. File already exists."
+                return False, 'Can\'t move to this path. File already exists.'
         else:
-            return False, "No such file found in the File System."
+            return False, 'No such file found in the File System.'
 
     def file_moved_ack(self, path_from, path_to, node_socket_id, node_ip, node_port):
         path_from_split = split_filepath(path_from)
@@ -291,12 +306,19 @@ class NameServer:
             else:
                 ds.file_system.insert({'ancestors': path_to_split[:-1],
                                        'ancestors_str': '/'.join(path_to_split[:-1]),
+                                       'full_path': path_to,
                                        'name': path_to_split[-1],
                                        'type': 'file',
                                        'timestamp': int(time.time()),
                                        'servers': [{'node_socket_id': node_socket_id,
                                                     'server_ip': node_ip,
                                                     'server_port': node_port}]})
+
+    def file_info(self, path):
+        ds_find = ds.file_system.find({'full_path': path}, {'_id': 0, 'servers': 0, 'ancestors_str': 0, 'ancestors': 0})
+        if ds_find.count():
+            return list(ds_find)[0], None
+        return False, {'No such file found!'}
 
     def is_dir(self, path):
         path_split = split_filepath(path)
@@ -329,7 +351,7 @@ def get_server_to_upload_file():
         return _json.dumps({'exists': exists, 'fileserver': fileserver, 'uri': '/upload-file/'})
 
 
-# LS, CD, MKDIR, RM
+# LS, CD, MKDIR, RM, TOUCH
 
 @app.route('/list-dir/', methods=['GET'])
 def list_dir():
@@ -344,7 +366,7 @@ def open_dir():
     if allowed:
         return jsonify(success=True)
     else:
-        return jsonify({"message": allowed}), 404
+        return jsonify({'message': allowed}), 404
 
 
 @app.route('/make-dir/', methods=['POST'])
@@ -354,7 +376,7 @@ def make_dir():
     if created:
         return jsonify(success=True)
     else:
-        return jsonify({"message": err}), 400
+        return jsonify({'message': err}), 400
 
 
 @app.route('/delete-file/', methods=['POST'])
@@ -364,7 +386,10 @@ def delete_file():
     if nameserver.is_dir(path):
         socketio.emit('delete_dir', {'filepath': path + '/'}, broadcast=True, namespace='/')
     else:
-        socketio.emit('delete_file', {'filepath': path}, broadcast=True, namespace='/')
+        if ds.file_system.find({'full_path': path, 'timestamp': {'$exists': False}}).count():
+            ds.file_system.remove({'full_path': path, 'timestamp': {'$exists': False}})
+        else:
+            socketio.emit('delete_file', {'filepath': path}, broadcast=True, namespace='/')
 
     if ds.file_system.find(
             {'ancestors': path_split[:-1], 'name': path_split[-1], 'servers': {'$size': 0}}).count():
@@ -372,7 +397,17 @@ def delete_file():
     return jsonify(success=True)
 
 
-# CP, MV
+@app.route('/touch-file/', methods=['POST'])
+def touch_file():
+    path = request.form['filepath']
+    res, err = nameserver.touch_file(path)
+    if res:
+        return jsonify(success=True)
+    else:
+        jsonify({'message': err}), 400, {'ContentType': 'application/json'}
+
+
+# CP, MV, INFO
 
 @app.route('/copy-file/', methods=['POST'])
 def copy_file():
@@ -382,7 +417,7 @@ def copy_file():
     if copied:
         return _json.dumps({})
     else:
-        return jsonify({"message": err}), 400, {'ContentType': 'application/json'}
+        return jsonify({'message': err}), 400, {'ContentType': 'application/json'}
 
 
 @app.route('/move-file/', methods=['POST'])
@@ -393,7 +428,17 @@ def move_file():
     if copied:
         return _json.dumps({})
     else:
-        return jsonify({"message": err}), 400, {'ContentType': 'application/json'}
+        return jsonify({'message': err}), 400, {'ContentType': 'application/json'}
+
+
+@app.route('/file-info/', methods=['GET'])
+def file_info():
+    filepath = request.args.get('filepath')
+    info, err = nameserver.file_info(filepath)
+    if info:
+        return jsonify(info), 200, {'ContentType': 'application/json'}
+    else:
+        return jsonify({'message': err}), 404, {'ContentType': 'application/json'}
 
 
 # INTERNAL
@@ -486,14 +531,15 @@ def allocate_file(json_data):
     server_port = json_data['server_port']
     replicated = json_data['replicated']
     timestamp = json_data.get('timestamp')
-    nameserver.allocate_fle(node_socket_id, server_ip, server_port, filepath, timestamp, replicated)
+    size = json_data.get('size')
+    nameserver.allocate_fle(node_socket_id, server_ip, server_port, filepath, timestamp, size, replicated)
     return True
 
 
 def main():
     app.secret_key = 'MaxGay'
-    socketio.run(app, debug=True, port=5000, host='127.0.0.1')
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    socketio.run(app, debug=True, port=5000, host='0.0.0.0')
+    app.run(host='0.0.0.0', port=5000, debug=True)
 
 
 def split_filepath(filepath):

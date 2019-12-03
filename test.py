@@ -2,6 +2,7 @@ import time
 
 import pymongo
 import os
+import requests
 import re
 
 client = pymongo.MongoClient(
@@ -9,7 +10,7 @@ client = pymongo.MongoClient(
 
 db = client[
     'mongodb://heroku_8rbkrj6s:iccis5pen56ndm8r4cg1m3qsvm@ds227110.mlab.com:27110/heroku_8rbkrj6s'.split('/')[-1]]
-ds = db.ds_egor
+ds = db.ds
 
 
 def allocate_server():
@@ -20,6 +21,9 @@ if __name__ == '__main__':
     # ds.drop()
     # ds.servers.drop()
     # ds.file_system.drop()
+
+    ip = requests.get('https://api.ipify.org').text
+    print('My public IP address is:', ip)
 
 
     # print(os.path.getmtime('/Users/egorbak/PycharmProjects/PlayGround/ds/project/storage/rootDir2/2.png'))

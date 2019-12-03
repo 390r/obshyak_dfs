@@ -1,11 +1,11 @@
 {
   "id": 1,
   "name": "datanode_2",
-  "ip": "127.0.0.1",
+  "ip": "35.178.210.73",
   "port": 10002,
   "rootDir": "storage/rootDir2/",
   "nameserver": {
-    "ip": "127.0.0.1",
+    "ip": "35.178.210.73",
     "port": 5000
   }
 }
